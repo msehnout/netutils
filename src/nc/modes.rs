@@ -1,5 +1,6 @@
-use std::io::{stdin, Read, Write};
-use std::net::{TcpStream, TcpListener, UdpSocket};
+use std::fs::File;
+use std::io::{self, stdin, Read, Write};
+use std::net::{Ipv4Addr, SocketAddrV4, TcpStream, TcpListener, UdpSocket};
 use std::process::exit;
 use std::str;
 use std::thread;
@@ -19,6 +20,22 @@ macro_rules! print_err {
 
 // TODO: variable buffer size?
 const BUFFER_SIZE: usize = 65636;
+
+#[cfg(target_os = "redox")]
+fn get_local_socket() -> io::Result<SocketAddrV4> {
+    let mut ip_string = String::new();
+    File::open("/etc/net/ip")?.read_to_string(&mut ip_string)?;
+    let ip: Vec<u8> = ip_string.trim().split(".").map(|part| part.parse::<u8>()
+                               .unwrap_or(0)).collect();
+    let local_ip = Ipv4Addr::new(ip[0], ip[1], ip[2], ip[3]);
+    Ok(SocketAddrV4::new(local_ip, 0))
+}
+
+#[cfg(not(target_os = "redox"))]
+fn get_local_socket() -> io::Result<SocketAddrV4> {
+    let local_ip = Ipv4Addr::new(127, 0, 0, 1);
+    Ok(SocketAddrV4::new(local_ip, 0))
+}
 
 /// Read from the input file into a buffer in an infinite loop.
 /// Handle the buffer content with handler function.
@@ -91,9 +108,9 @@ pub fn listen_tcp(host: &str) -> Result<(), String> {
 
 /// Send UDP datagrams to specified socket
 pub fn connect_udp(host: &str) -> Result<(), String> {
-    // TODO: Implement some port selection process (while loop?)
-    let socket = try!(UdpSocket::bind("localhost:30000")
-                      .map_err(|e| {format!("connect_udp error: could not bind to local socket ({})", e)}));
+    let socket = UdpSocket::bind(get_local_socket()
+                      .map_err(|e| {format!("connect_udp error: could not get local socket number ({})", e)})?)
+                      .map_err(|e| {format!("connect_udp error: could not bind to local socket ({})", e)})?;
     try!(socket.connect(host)
          .map_err(|e| {format!("connect_udp error: could not set up remote socket ({})", e)}));
 
